@@ -44,7 +44,6 @@ INSTALLED_APPS = [
     'lists',
     'cards',
     'projects',
-    'tasks',
 ]
 
 MIDDLEWARE = [
