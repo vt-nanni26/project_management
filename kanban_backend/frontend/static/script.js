@@ -59,7 +59,6 @@ class App {
     }
 
     async run() {
-        this.setupThemeToggle();
         await this.loadData();
         this.render();
         this.addAppEventListeners();
@@ -99,16 +98,6 @@ class App {
     }
 
     // --- Theme Management ---
-    setupThemeToggle() {
-        this.themeToggle = this.appElement.querySelector('#theme-toggle');
-        // Reflect the current theme state on the toggle
-        if (document.body.classList.contains('dark-theme')) {
-            this.themeToggle.checked = true;
-        }
-        // Add the event listener
-        this.themeToggle.addEventListener('change', () => this.toggleTheme());
-    }
-
     toggleTheme() {
         document.body.classList.toggle('dark-theme');
         const theme = document.body.classList.contains('dark-theme') ? 'dark' : 'light';
@@ -353,17 +342,74 @@ class App {
     }
 
     // --- Board Operations ---
-    addBoard(name) {
+    async addBoard(name) {
         if (!name.trim()) {
             this.showToast('Board name cannot be empty.', 'error');
             return;
         }
-        const newBoard = new Board(Date.now(), name);
-        this.boards.push(newBoard);
-        this.currentBoardId = newBoard.id;
-        this.saveData();
-        this.render();
-        this.showToast(`Board "${name}" created successfully.`, 'success');
+
+        try {
+            const csrfToken = this.getCookie('csrftoken');
+
+            // Find a project to associate the board with
+            const projectsResponse = await fetch('/api/projects/');
+            if (!projectsResponse.ok) {
+                throw new Error('Could not fetch projects.');
+            }
+            const projects = await projectsResponse.json();
+
+            let projectId;
+            if (projects && projects.length > 0) {
+                projectId = projects[0].id; // Use the first project found
+            } else {
+                // If no projects exist, create a default one
+                const projectResponse = await fetch('/api/projects/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({ name: 'Default Project' }),
+                });
+                if (!projectResponse.ok) {
+                    throw new Error('Failed to create a default project.');
+                }
+                const newProject = await projectResponse.json();
+                projectId = newProject.id;
+                this.showToast('Created a new default project.', 'info');
+            }
+
+            const response = await fetch('/api/boards/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ name: name, project: projectId })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to create board on the server.');
+            }
+
+            const newBoardData = await response.json();
+            const newBoard = new Board(newBoardData.id, newBoardData.name);
+            this.boards.push(newBoard);
+            this.currentBoardId = newBoard.id;
+            
+            // After creating a new board, it will be empty.
+            // We need to load its (empty) lists.
+            await this.loadListsForCurrentBoard();
+            
+            this.saveData(); // This still saves to localStorage as a backup
+            this.render(); // Re-render the whole UI
+            this.showToast(`Board "${name}" created successfully.`, 'success');
+
+        } catch (error) {
+            console.error('Error adding board:', error);
+            this.showToast(error.message, 'error');
+        }
     }
 
     renameBoard(newName) {
@@ -687,10 +733,11 @@ class App {
         const newListTitleInput = this.appElement.querySelector('#new-list-title');
 
         // Board actions
-        this.appElement.querySelector('#add-board-btn').addEventListener('click', () => {
-            const newBoardName = this.appElement.querySelector('#new-board-name').value;
-            this.addBoard(newBoardName);
-            this.appElement.querySelector('#new-board-name').value = '';
+        this.appElement.querySelector('#add-board-btn').addEventListener('click', async () => {
+            const newBoardNameInput = this.appElement.querySelector('#new-board-name');
+            const newBoardName = newBoardNameInput.value;
+            await this.addBoard(newBoardName);
+            newBoardNameInput.value = '';
         });
         this.appElement.querySelector('#board-select').addEventListener('change', (e) => this.switchBoard(e.target.value));
         this.appElement.querySelector('#delete-board-btn').addEventListener('click', () => this.deleteBoard());
@@ -772,8 +819,17 @@ class App {
 
         // Search/Filter
         this.appElement.querySelector('#search-input').addEventListener('input', e => this.filterTasks(e.target.value));
-        
-        // The theme toggle listener is now set up in setupThemeToggle()
+
+        // Theme switcher
+        const themeToggle = this.appElement.querySelector('#theme-toggle');
+        if (themeToggle) {
+            // Reflect the current theme state on the toggle
+            if (document.body.classList.contains('dark-theme')) {
+                themeToggle.checked = true;
+            }
+            // Add the event listener
+            themeToggle.addEventListener('change', () => this.toggleTheme());
+        }
     }
 
     makeTitleEditable(titleElement, type) {
