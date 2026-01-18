@@ -23,9 +23,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-2&)s1-%)s=fn3=0^2tv)e!c3d&068_y!$#-ugxt!^&c=knggfz'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = []
+# SECURITY WARNING: don't use ['*'] in production! Replace with your actual domain(s)
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -125,8 +126,12 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'frontend' / 'static']
 
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
 CORS_ALLOW_ALL_ORIGINS = True
 
 CSRF_COOKIE_SECURE = False
 CSRF_COOKIE_HTTPONLY = False
-CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:8000']
+CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:8000', 'https://127.0.0.1:8000', 'http://localhost:8000', 'https://localhost:8000']
+
+# TODO: Add your production domain here, e.g., 'https://yourdomain.com'
