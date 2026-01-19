@@ -116,6 +116,11 @@ class App {
     async loadData() {
         try {
             const response = await fetch('/api/boards/', { credentials: 'include' });
+            if (response.status === 401 || response.status === 403) {
+                // If the user is not authenticated, the auth flow will handle it.
+                // This prevents console errors when the app first loads without a session.
+                return; 
+            }
             if (!response.ok) {
                 throw new Error('Failed to fetch boards from the server.');
             }
@@ -124,26 +129,23 @@ class App {
             if (boardsData && boardsData.length > 0) {
                 this.boards = boardsData.map(boardData => {
                     const board = new Board(boardData.id, boardData.name);
-                    // Assuming lists and tasks will be fetched separately or nested
                     board.lists = []; 
                     return board;
                 });
-                // Find the last viewed board ID from localStorage or default to the first board
                 const lastViewedId = parseInt(localStorage.getItem('kanbanCurrentBoardId'));
                 const boardExists = this.boards.some(b => b.id === lastViewedId);
                 this.currentBoardId = boardExists ? lastViewedId : this.boards[0].id;
 
-                // Now, fetch the lists and tasks for the current board
                 await this.loadListsForCurrentBoard();
 
             } else {
-                // If no boards exist on the server, create a sample one
-                await this.createSampleBoardOnBackend();
+                // If no boards exist on the server, prompt the user to create one.
+                this.showToast('No boards found. Please create a new board to get started.', 'info');
+                this.render(); // Render the empty state
             }
         } catch (error) {
-            console.error("Failed to load data from server, trying to load from localStorage as a fallback.", error);
-            this.showToast('Could not connect to the server. Loading a local backup.', 'error');
-            this.loadDataFromLocalStorage(); // Fallback to localStorage if the server fails
+            console.error("Failed to load data from server.", error);
+            this.showToast('Could not connect to the server. Please check your connection and refresh.', 'error');
         }
     }
 
@@ -834,6 +836,19 @@ class App {
             // Add the event listener
             themeToggle.addEventListener('change', () => this.toggleTheme());
         }
+
+        // Logout
+        const logoutBtn = this.appElement.querySelector('#logout-btn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', async () => {
+                try {
+                    await fetch('/api/auth/logout/', { credentials: 'include' });
+                    location.reload(); // Reload to show auth forms
+                } catch (error) {
+                    console.error('Logout error:', error);
+                }
+            });
+        }
     }
 
     makeTitleEditable(titleElement, type) {
@@ -909,23 +924,123 @@ class App {
     }
 }
 
-// --- App Initialization ---
-window.startApp = function () {
-    document.getElementById('landing-page').classList.add('hidden');
+// --- Authentication ---
+async function checkAuth() {
+    try {
+        const response = await fetch('/api/auth/me/', { credentials: 'include' });
+        if (response.ok) {
+            const data = await response.json();
+            return data.username ? true : false;
+        }
+        return false;
+    } catch (error) {
+        console.error('Auth check failed:', error);
+        return false;
+    }
+}
+
+async function showAuthForms() {
+    document.getElementById('auth-container').classList.remove('hidden');
+    document.getElementById('app-container').classList.add('hidden');
+}
+
+async function showApp() {
+    document.getElementById('auth-container').classList.add('hidden');
     document.getElementById('app-container').classList.remove('hidden');
 
     const app = new App(document.getElementById('app-container'));
     app.run();
-};
+}
 
-document.addEventListener('DOMContentLoaded', () => {
+// --- App Initialization ---
+document.addEventListener('DOMContentLoaded', async () => {
     // Apply theme
     const savedTheme = localStorage.getItem('kanbanTheme') || 'light';
     if (savedTheme === 'dark') {
         document.body.classList.add('dark-theme');
     }
 
-    // Always show the landing page and attach the event to the Get Started button
-    document.getElementById('get-started-btn')
-        .addEventListener('click', () => startApp());
+    // Check authentication
+    const isAuthenticated = await checkAuth();
+    if (isAuthenticated) {
+        showApp();
+    } else {
+        showAuthForms();
+    }
+
+    // Attach auth form listeners
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const showRegisterLink = document.getElementById('show-register');
+    const showLoginLink = document.getElementById('show-login');
+
+    showRegisterLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        loginForm.style.display = 'none';
+        registerForm.style.display = 'block';
+    });
+
+    showLoginLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        loginForm.style.display = 'block';
+        registerForm.style.display = 'none';
+    });
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+
+        try {
+            const response = await fetch('/api/auth/login/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+                credentials: 'include'
+            });
+            if (response.ok) {
+                showApp();
+            } else {
+                alert('Login failed');
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            alert('Login error');
+        }
+    });
+
+    registerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('register-username').value;
+        const password = document.getElementById('register-password').value;
+
+        try {
+            const response = await fetch('/api/auth/register/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+                credentials: 'include'
+            });
+            if (response.ok) {
+                // Auto-login after register
+                const loginResponse = await fetch('/api/auth/login/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'include'
+                });
+                if (loginResponse.ok) {
+                    showApp();
+                } else {
+                    alert('Registration successful, but login failed');
+                }
+            } else {
+                const errorData = await response.json();
+                alert(`Registration failed: ${errorData.error}`);
+            }
+        } catch (error) {
+            console.error('Registration error:', error);
+            alert('Registration error');
+        }
+    });
 });
