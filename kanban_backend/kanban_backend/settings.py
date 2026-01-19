@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'lists',
     'cards',
     'projects',
+    'common.apps.CommonConfig',
 ]
 
 MIDDLEWARE = [

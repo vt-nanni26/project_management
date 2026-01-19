@@ -306,6 +306,80 @@ input:checked + .slider:before {
     pointer-events: none !important;
 }
 
+/* Auth Styles */
+#auth-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background-color: var(--bg-color);
+}
+
+#login-form, #register-form {
+    background-color: var(--card-bg);
+    padding: 2em;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px var(--shadow-color);
+    width: 320px;
+    text-align: center;
+}
+
+#login-form h2, #register-form h2 {
+    margin-bottom: 1.5em;
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+#login-form input, #register-form input {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 1em;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--input-bg-color);
+    color: var(--text-color);
+    font-size: 1rem;
+    box-sizing: border-box;
+}
+
+#login-form input:focus, #register-form input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(94, 114, 228, 0.2);
+}
+
+#login-form button, #register-form button {
+    width: 100%;
+    padding: 12px;
+    background-color: var(--button-bg-color);
+    color: var(--button-text-color);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+#login-form button:hover, #register-form button:hover {
+    background-color: var(--button-hover-bg-color);
+}
+
+#login-form p, #register-form p {
+    margin-top: 1.5em;
+    color: var(--text-secondary-color);
+}
+
+#login-form a, #register-form a {
+    color: var(--accent-color);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+#login-form a:hover, #register-form a:hover {
+    text-decoration: underline;
+}
+
 #board-container {
     display: flex;
     gap: 16px;
