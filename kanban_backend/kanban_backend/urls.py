@@ -22,8 +22,9 @@ urlpatterns = [
     path('', TemplateView.as_view(template_name='index.html')),
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
+    path('api/projects/', include('projects.urls')),
     path('api/', include('projects.urls')),
-    path('api/', include('boards.urls')),
-    path('api/', include('lists.urls')),
-    path('api/', include('cards.urls')),
+    path('api/boards/', include('boards.urls')),
+    path('api/lists', include('lists.urls')),
+    path('api/cards', include('cards.urls')),
 ]
