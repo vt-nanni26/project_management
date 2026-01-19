@@ -1,7 +1,8 @@
 from django.db import models
 from lists.models import List
+from common.models import TimestampedModel
 
-class Card(models.Model):
+class Card(TimestampedModel):
     title = models.CharField(max_length=200)
     description = models.TextField()
     list = models.ForeignKey(List, related_name='cards', on_delete=models.CASCADE)

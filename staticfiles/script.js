@@ -59,7 +59,6 @@ class App {
     }
 
     async run() {
-        this.setupThemeToggle();
         await this.loadData();
         this.render();
         this.addAppEventListeners();
@@ -99,16 +98,6 @@ class App {
     }
 
     // --- Theme Management ---
-    setupThemeToggle() {
-        this.themeToggle = this.appElement.querySelector('#theme-toggle');
-        // Reflect the current theme state on the toggle
-        if (document.body.classList.contains('dark-theme')) {
-            this.themeToggle.checked = true;
-        }
-        // Add the event listener
-        this.themeToggle.addEventListener('change', () => this.toggleTheme());
-    }
-
     toggleTheme() {
         document.body.classList.toggle('dark-theme');
         const theme = document.body.classList.contains('dark-theme') ? 'dark' : 'light';
@@ -126,7 +115,12 @@ class App {
 
     async loadData() {
         try {
-            const response = await fetch('/api/boards/');
+            const response = await fetch('/api/boards/', { credentials: 'include' });
+            if (response.status === 401 || response.status === 403) {
+                // If the user is not authenticated, the auth flow will handle it.
+                // This prevents console errors when the app first loads without a session.
+                return; 
+            }
             if (!response.ok) {
                 throw new Error('Failed to fetch boards from the server.');
             }
@@ -135,26 +129,23 @@ class App {
             if (boardsData && boardsData.length > 0) {
                 this.boards = boardsData.map(boardData => {
                     const board = new Board(boardData.id, boardData.name);
-                    // Assuming lists and tasks will be fetched separately or nested
                     board.lists = []; 
                     return board;
                 });
-                // Find the last viewed board ID from localStorage or default to the first board
                 const lastViewedId = parseInt(localStorage.getItem('kanbanCurrentBoardId'));
                 const boardExists = this.boards.some(b => b.id === lastViewedId);
                 this.currentBoardId = boardExists ? lastViewedId : this.boards[0].id;
 
-                // Now, fetch the lists and tasks for the current board
                 await this.loadListsForCurrentBoard();
 
             } else {
-                // If no boards exist on the server, create a sample one
-                await this.createSampleBoardOnBackend();
+                // If no boards exist on the server, prompt the user to create one.
+                this.showToast('No boards found. Please create a new board to get started.', 'info');
+                this.render(); // Render the empty state
             }
         } catch (error) {
-            console.error("Failed to load data from server, trying to load from localStorage as a fallback.", error);
-            this.showToast('Could not connect to the server. Loading a local backup.', 'error');
-            this.loadDataFromLocalStorage(); // Fallback to localStorage if the server fails
+            console.error("Failed to load data from server.", error);
+            this.showToast('Could not connect to the server. Please check your connection and refresh.', 'error');
         }
     }
 
@@ -195,7 +186,7 @@ class App {
 
         try {
             // This endpoint should return lists with their nested tasks for a given board
-            const response = await fetch(`/api/lists/?board_id=${this.currentBoardId}`); 
+            const response = await fetch(`/api/lists/?board_id=${this.currentBoardId}`, { credentials: 'include' }); 
             if (!response.ok) {
                 throw new Error('Failed to fetch lists.');
             }
@@ -231,9 +222,9 @@ class App {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken,
                 },
                 body: JSON.stringify({ username, password }),
+                credentials: 'include'
             });
             if (!registerResponse.ok) throw new Error('Failed to register sample user.');
 
@@ -242,9 +233,9 @@ class App {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken,
                 },
                 body: JSON.stringify({ username, password }),
+                credentials: 'include'
             });
             if (!loginResponse.ok) throw new Error('Failed to log in sample user.');
 
@@ -256,6 +247,7 @@ class App {
                     'X-CSRFToken': csrfToken,
                 },
                 body: JSON.stringify({ name: 'Default Project' }), 
+                credentials: 'include'
             });
             if (!projectResponse.ok) throw new Error('Failed to create sample project.');
             const project = await projectResponse.json();
@@ -268,6 +260,7 @@ class App {
                     'X-CSRFToken': csrfToken,
                 },
                 body: JSON.stringify({ name: 'My First Board', project: project.id }),
+                credentials: 'include'
             });
             if (!boardResponse.ok) throw new Error('Failed to create sample board.');
             const board = await boardResponse.json();
@@ -280,6 +273,7 @@ class App {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
                     body: JSON.stringify({ title: title, board: board.id }),
+                    credentials: 'include'
                 }).then(res => res.json())
             );
             const lists = await Promise.all(listPromises);
@@ -293,6 +287,7 @@ class App {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
                     body: JSON.stringify(task),
+                    credentials: 'include'
                 }).then(res => res.json())
             );
             await Promise.all(taskPromises);
@@ -353,17 +348,74 @@ class App {
     }
 
     // --- Board Operations ---
-    addBoard(name) {
+    async addBoard(name) {
         if (!name.trim()) {
             this.showToast('Board name cannot be empty.', 'error');
             return;
         }
-        const newBoard = new Board(Date.now(), name);
-        this.boards.push(newBoard);
-        this.currentBoardId = newBoard.id;
-        this.saveData();
-        this.render();
-        this.showToast(`Board "${name}" created successfully.`, 'success');
+
+        try {
+            const csrfToken = this.getCookie('csrftoken');
+
+            // Find a project to associate the board with
+            const projectsResponse = await fetch('/api/projects/', { credentials: 'include' });
+            if (!projectsResponse.ok) {
+                throw new Error('Could not fetch projects.');
+            }
+            const projects = await projectsResponse.json();
+
+            let projectId;
+            if (projects && projects.length > 0) {
+                projectId = projects[0].id; // Use the first project found
+            } else {
+                // If no projects exist, create a default one
+                const projectResponse = await fetch('/api/projects/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                    },
+                    body: JSON.stringify({ name: 'Default Project' }),
+                });
+                if (!projectResponse.ok) {
+                    throw new Error('Failed to create a default project.');
+                }
+                const newProject = await projectResponse.json();
+                projectId = newProject.id;
+                this.showToast('Created a new default project.', 'info');
+            }
+
+            const response = await fetch('/api/boards/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ name: name, project: projectId })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to create board on the server.');
+            }
+
+            const newBoardData = await response.json();
+            const newBoard = new Board(newBoardData.id, newBoardData.name);
+            this.boards.push(newBoard);
+            this.currentBoardId = newBoard.id;
+            
+            // After creating a new board, it will be empty.
+            // We need to load its (empty) lists.
+            await this.loadListsForCurrentBoard();
+            
+            this.saveData(); // This still saves to localStorage as a backup
+            this.render(); // Re-render the whole UI
+            this.showToast(`Board "${name}" created successfully.`, 'success');
+
+        } catch (error) {
+            console.error('Error adding board:', error);
+            this.showToast(error.message, 'error');
+        }
     }
 
     renameBoard(newName) {
@@ -687,10 +739,11 @@ class App {
         const newListTitleInput = this.appElement.querySelector('#new-list-title');
 
         // Board actions
-        this.appElement.querySelector('#add-board-btn').addEventListener('click', () => {
-            const newBoardName = this.appElement.querySelector('#new-board-name').value;
-            this.addBoard(newBoardName);
-            this.appElement.querySelector('#new-board-name').value = '';
+        this.appElement.querySelector('#add-board-btn').addEventListener('click', async () => {
+            const newBoardNameInput = this.appElement.querySelector('#new-board-name');
+            const newBoardName = newBoardNameInput.value;
+            await this.addBoard(newBoardName);
+            newBoardNameInput.value = '';
         });
         this.appElement.querySelector('#board-select').addEventListener('change', (e) => this.switchBoard(e.target.value));
         this.appElement.querySelector('#delete-board-btn').addEventListener('click', () => this.deleteBoard());
@@ -772,8 +825,30 @@ class App {
 
         // Search/Filter
         this.appElement.querySelector('#search-input').addEventListener('input', e => this.filterTasks(e.target.value));
-        
-        // The theme toggle listener is now set up in setupThemeToggle()
+
+        // Theme switcher
+        const themeToggle = this.appElement.querySelector('#theme-toggle');
+        if (themeToggle) {
+            // Reflect the current theme state on the toggle
+            if (document.body.classList.contains('dark-theme')) {
+                themeToggle.checked = true;
+            }
+            // Add the event listener
+            themeToggle.addEventListener('change', () => this.toggleTheme());
+        }
+
+        // Logout
+        const logoutBtn = this.appElement.querySelector('#logout-btn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', async () => {
+                try {
+                    await fetch('/api/auth/logout/', { credentials: 'include' });
+                    location.reload(); // Reload to show auth forms
+                } catch (error) {
+                    console.error('Logout error:', error);
+                }
+            });
+        }
     }
 
     makeTitleEditable(titleElement, type) {
@@ -849,23 +924,123 @@ class App {
     }
 }
 
-// --- App Initialization ---
-window.startApp = function () {
-    document.getElementById('landing-page').classList.add('hidden');
+// --- Authentication ---
+async function checkAuth() {
+    try {
+        const response = await fetch('/api/auth/me/', { credentials: 'include' });
+        if (response.ok) {
+            const data = await response.json();
+            return data.username ? true : false;
+        }
+        return false;
+    } catch (error) {
+        console.error('Auth check failed:', error);
+        return false;
+    }
+}
+
+async function showAuthForms() {
+    document.getElementById('auth-container').classList.remove('hidden');
+    document.getElementById('app-container').classList.add('hidden');
+}
+
+async function showApp() {
+    document.getElementById('auth-container').classList.add('hidden');
     document.getElementById('app-container').classList.remove('hidden');
 
     const app = new App(document.getElementById('app-container'));
     app.run();
-};
+}
 
-document.addEventListener('DOMContentLoaded', () => {
+// --- App Initialization ---
+document.addEventListener('DOMContentLoaded', async () => {
     // Apply theme
     const savedTheme = localStorage.getItem('kanbanTheme') || 'light';
     if (savedTheme === 'dark') {
         document.body.classList.add('dark-theme');
     }
 
-    // Always show the landing page and attach the event to the Get Started button
-    document.getElementById('get-started-btn')
-        .addEventListener('click', () => startApp());
+    // Check authentication
+    const isAuthenticated = await checkAuth();
+    if (isAuthenticated) {
+        showApp();
+    } else {
+        showAuthForms();
+    }
+
+    // Attach auth form listeners
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const showRegisterLink = document.getElementById('show-register');
+    const showLoginLink = document.getElementById('show-login');
+
+    showRegisterLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        loginForm.style.display = 'none';
+        registerForm.style.display = 'block';
+    });
+
+    showLoginLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        loginForm.style.display = 'block';
+        registerForm.style.display = 'none';
+    });
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+
+        try {
+            const response = await fetch('/api/auth/login/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+                credentials: 'include'
+            });
+            if (response.ok) {
+                showApp();
+            } else {
+                alert('Login failed');
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            alert('Login error');
+        }
+    });
+
+    registerForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('register-username').value;
+        const password = document.getElementById('register-password').value;
+
+        try {
+            const response = await fetch('/api/auth/register/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+                credentials: 'include'
+            });
+            if (response.ok) {
+                // Auto-login after register
+                const loginResponse = await fetch('/api/auth/login/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'include'
+                });
+                if (loginResponse.ok) {
+                    showApp();
+                } else {
+                    alert('Registration successful, but login failed');
+                }
+            } else {
+                const errorData = await response.json();
+                alert(`Registration failed: ${errorData.error}`);
+            }
+        } catch (error) {
+            console.error('Registration error:', error);
+            alert('Registration error');
+        }
+    });
 });
