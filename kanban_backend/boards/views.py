@@ -1,7 +1,10 @@
 from rest_framework import viewsets, permissions
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from .models import Board
 from .serializers import BoardSerializer
 
+@method_decorator(csrf_exempt, name='dispatch')
 class BoardViewSet(viewsets.ModelViewSet):
     queryset = Board.objects.all()
     serializer_class = BoardSerializer

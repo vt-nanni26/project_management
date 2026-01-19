@@ -1,7 +1,10 @@
 from rest_framework import viewsets
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from .models import List
 from .serializers import ListSerializer
 
+@method_decorator(csrf_exempt, name='dispatch')
 class ListViewSet(viewsets.ModelViewSet):
     queryset = List.objects.all()
     serializer_class = ListSerializer
